@@ -1474,7 +1474,8 @@ static void die_if_some_operation_in_progress(void)
 }
 
 static int checkout_branch(struct checkout_opts *opts,
-			   struct branch_info *new_branch_info)
+			   struct branch_info *new_branch_info,
+			   char *check_branch_path)
 {
 	if (opts->pathspec.nr)
 		die(_("paths cannot be used with switching branches"));
@@ -1533,15 +1534,15 @@ static int checkout_branch(struct checkout_opts *opts,
 	if (!opts->can_switch_when_in_progress)
 		die_if_some_operation_in_progress();
 
-	if (new_branch_info->path && !opts->force_detach && !opts->new_branch &&
-	    !opts->ignore_other_worktrees) {
+	if (check_branch_path && !opts->force_detach && !opts->ignore_other_worktrees) {
 		int flag;
 		char *head_ref = resolve_refdup("HEAD", 0, NULL, &flag);
-		if (head_ref &&
-		    (!(flag & REF_ISSYMREF) || strcmp(head_ref, new_branch_info->path)))
-			die_if_checked_out(new_branch_info->path, 1);
+		if (opts->new_branch_force || (head_ref &&
+		    (!(flag & REF_ISSYMREF) || strcmp(head_ref, check_branch_path))))
+			die_if_checked_out(check_branch_path, 1);
 		free(head_ref);
 	}
+	free(check_branch_path);
 
 	if (!new_branch_info->commit && opts->new_branch) {
 		struct object_id rev;
@@ -1628,6 +1629,7 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 			 struct branch_info *new_branch_info)
 {
 	int parseopt_flags = 0;
+	char *check_branch_path = NULL;
 
 	opts->overwrite_ignore = 1;
 	opts->prefix = prefix;
@@ -1739,6 +1741,7 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 			!opts->new_branch;
 		int n = parse_branchname_arg(argc, argv, dwim_ok,
 					     new_branch_info, opts, &rev);
+		check_branch_path = xstrdup_or_null(new_branch_info->path);
 		argv += n;
 		argc -= n;
 	} else if (!opts->accept_ref && opts->from_treeish) {
@@ -1751,8 +1754,18 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 						      opts, &rev,
 						      opts->from_treeish);
 
+		check_branch_path = xstrdup_or_null(new_branch_info->path);
 		if (!opts->source_tree)
 			die(_("reference is not a tree: %s"), opts->from_treeish);
+	} else if (opts->new_branch && !opts->ignore_other_worktrees) {
+		struct object_id rev;
+
+		if (!get_oid_mb(opts->new_branch, &rev)) {
+			struct strbuf buf = STRBUF_INIT;
+			strbuf_branchname(&buf, opts->new_branch, INTERPRET_BRANCH_LOCAL);
+			strbuf_splice(&buf, 0, 0, "refs/heads/", 11);
+			check_branch_path = strbuf_detach(&buf, NULL);
+		}
 	}
 
 	if (argc) {
@@ -1816,10 +1829,12 @@ static int checkout_main(int argc, const char **argv, const char *prefix,
 		strbuf_release(&buf);
 	}
 
-	if (opts->patch_mode || opts->pathspec.nr)
+	if (opts->patch_mode || opts->pathspec.nr) {
+		free(check_branch_path);
 		return checkout_paths(opts, new_branch_info);
+	}
 	else
-		return checkout_branch(opts, new_branch_info);
+		return checkout_branch(opts, new_branch_info, check_branch_path);
 }
 
 int cmd_checkout(int argc, const char **argv, const char *prefix)

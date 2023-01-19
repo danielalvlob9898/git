@@ -121,7 +121,10 @@ test_expect_success '"add" worktree creating new branch' '
 test_expect_success 'die the same branch is already checked out' '
 	(
 		cd here &&
-		test_must_fail git checkout newmain
+		test_must_fail git checkout newmain &&
+		test_must_fail git checkout -B newmain &&
+		test_must_fail git switch newmain &&
+		test_must_fail git switch -C newmain
 	)
 '
 
@@ -143,7 +146,18 @@ test_expect_success 'not die the same branch is already checked out' '
 test_expect_success 'not die on re-checking out current branch' '
 	(
 		cd there &&
-		git checkout newmain
+		git checkout newmain &&
+		git switch newmain
+	)
+'
+
+test_expect_success 'but die if using force without --ignore-other-worktrees' '
+	(
+		cd there &&
+		test_must_fail git checkout -B newmain &&
+		test_must_fail git switch -C newmain &&
+		git checkout --ignore-other-worktrees -B newmain &&
+		git switch --ignore-other-worktrees -C newmain
 	)
 '
 
